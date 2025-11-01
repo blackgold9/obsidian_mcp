@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "obsidian-tasks": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "fastmcp",
+        "fastmcp",
+        "run",
+        "/home/blackgold9/code/obsidian_mcp/mcp_server.py"
+      ]
+    }
+  }
+}
