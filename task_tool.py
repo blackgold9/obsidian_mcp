@@ -2,12 +2,22 @@
 A command-line tool for querying and managing tasks in an Obsidian vault.
 """
 import argparse
+import logging
 import os
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 
 class TaskStatus(Enum):
@@ -94,6 +104,8 @@ def parse_tasks_from_file(file_path: str) -> List[Task]:
     # Block IDs may have trailing punctuation
     block_id_regex = re.compile(r"^\^([a-zA-Z0-9-]+)[,.]?$")
     recurrence_regex = re.compile(r"^🔁$")
+    # Dependencies: ⛔ emoji followed by block IDs
+    dependency_emoji_regex = re.compile(r"^⛔$")
 
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -119,11 +131,12 @@ def parse_tasks_from_file(file_path: str) -> List[Task]:
 
                 tokens = task.description.split()
                 
-                # First pass: Extract tags, block IDs, and locate recurrence emoji
+                # First pass: Extract tags, block IDs, and locate recurrence/dependency emojis
                 # Tags and block IDs can appear anywhere
-                # Recurrence emoji location needed for reverse parsing
+                # Recurrence and dependency emoji locations needed for reverse parsing
                 tag_indices = set()
                 recurrence_emoji_idx = None
+                dependency_emoji_idx = None
                 
                 for idx, token in enumerate(tokens):
                     tag_match = tag_regex.match(token)
@@ -132,10 +145,9 @@ def parse_tasks_from_file(file_path: str) -> List[Task]:
                         tag_indices.add(idx)
                     
                     # Block IDs can appear anywhere (not just at end)
-                    block_id_match = block_id_regex.match(token)
-                    if block_id_match:
-                        task.block_id = block_id_match.group(1)
-                        tag_indices.add(idx)
+                    # But we need to be careful: block IDs before ⛔ are the task's own block_id,
+                    # block IDs after ⛔ are dependencies
+                    # We'll handle block_id and dependencies in the reverse pass to get correct order
                     
                     # Locate recurrence emoji (for reverse parsing - will process in pass 2)
                     # NOTE: Current implementation finds recurrence anywhere in forward pass,
@@ -144,6 +156,10 @@ def parse_tasks_from_file(file_path: str) -> List[Task]:
                     # Post-MVP: Consider moving to strict reverse-only parsing to match plugin exactly.
                     if recurrence_regex.match(token):
                         recurrence_emoji_idx = idx
+                    
+                    # Locate dependency emoji (⛔) - appears before block IDs at the end
+                    if dependency_emoji_regex.match(token):
+                        dependency_emoji_idx = idx
                 
                 # Second pass: Reverse parsing for end-of-line metadata
                 # (dates, priorities, recurrence rules)
@@ -151,6 +167,9 @@ def parse_tasks_from_file(file_path: str) -> List[Task]:
                 # https://publish.obsidian.md/tasks/Support+and+Help/Known+Limitations
                 # Only process tokens that aren't tags or block IDs
                 unparsed_token_index = len(tokens)
+                
+                # Process dependencies - dependencies are parsed in forward pass but need to be
+                # excluded from description. Already handled above in first pass.
                 
                 # Process recurrence if emoji was found (post-MVP)
                 if recurrence_emoji_idx is not None:
@@ -168,7 +187,59 @@ def parse_tasks_from_file(file_path: str) -> List[Task]:
                     # Update unparsed_token_index to exclude recurrence
                     unparsed_token_index = recurrence_emoji_idx
                 
+                # Process block IDs and dependencies
+                # Block IDs before ⛔ are the task's own block_id
+                # Block IDs after ⛔ are dependencies
+                if dependency_emoji_idx is not None:
+                    # Found ⛔ - only tokens BEFORE it can be the task's block_id
+                    # Find block_id from tokens before dependency_emoji_idx
+                    for idx in range(dependency_emoji_idx):
+                        if idx not in tag_indices:
+                            block_match = block_id_regex.match(tokens[idx])
+                            if block_match:
+                                task.block_id = block_match.group(1)
+                                tag_indices.add(idx)
+                                break
+                    
+                    # Collect dependencies from ⛔ onwards
+                    i = dependency_emoji_idx
+                    if i < len(tokens) and dependency_emoji_regex.match(tokens[i]):
+                        tag_indices.add(i)  # Mark emoji for exclusion
+                        # Collect all following block IDs as dependencies
+                        j = i + 1
+                        while j < len(tokens):
+                            if j not in tag_indices:
+                                dep_block_id_match = block_id_regex.match(tokens[j])
+                                if dep_block_id_match:
+                                    dep_id = dep_block_id_match.group(1)
+                                    if dep_id not in task.dependencies:
+                                        task.dependencies.append(dep_id)
+                                    tag_indices.add(j)  # Mark block ID
+                                else:
+                                    # No more consecutive block IDs, break
+                                    break
+                            j += 1
+                        # Update unparsed_token_index to exclude dependencies
+                        if i < unparsed_token_index:
+                            unparsed_token_index = i
+                else:
+                    # No ⛔ found - find block_id from any remaining block IDs (in reverse, at end)
+                    # But only if we haven't already processed block_ids that were part of dates/priorities
+                    # We'll look for block_ids in the unparsed range
+                    # Start from end and work backwards to find the rightmost block_id
+                    for idx in range(len(tokens) - 1, -1, -1):
+                        if idx not in tag_indices:
+                            block_match = block_id_regex.match(tokens[idx])
+                            if block_match:
+                                task.block_id = block_match.group(1)
+                                tag_indices.add(idx)
+                                # Update unparsed_token_index to exclude block_id
+                                if idx < unparsed_token_index:
+                                    unparsed_token_index = idx
+                                break
+                
                 # Reverse parsing for dates and priorities
+                # Note: block_ids (without ⛔) are already processed above, so this will skip them
                 i = unparsed_token_index - 1
                 while i >= 0:
                     # Skip tags, block IDs, and recurrence - they're already processed
@@ -230,52 +301,67 @@ def parse_tasks_from_file(file_path: str) -> List[Task]:
                 tasks.append(task)
 
     except Exception as e:
-        print(f"Error reading or parsing file {file_path}: {e}")
+        logger.error(f"Error reading or parsing file {file_path}: {e}", exc_info=True)
 
     return tasks
 
 
-def get_all_tasks(vault_path: str) -> List[Task]:
+# Cache for storing parsed tasks with file modification times
+# Structure: {file_path: (mtime, tasks)}
+_task_cache: Dict[str, Tuple[float, List[Task]]] = {}
 
 
+def clear_task_cache() -> None:
+    """Clear the task cache. Useful for testing or forcing a full re-parse."""
+    global _task_cache
+    _task_cache.clear()
+
+
+def get_file_mtime(file_path: str) -> float:
+    """Get the modification time of a file."""
+    try:
+        return os.path.getmtime(file_path)
+    except OSError:
+        return 0.0
+
+
+def get_all_tasks(vault_path: str, use_cache: bool = True) -> List[Task]:
     """
-
-
     Finds and parses all tasks from all Markdown files in a vault.
-
-
-
-
+    
+    Uses caching to avoid re-parsing unchanged files. The cache tracks
+    file modification times and only re-parses files that have changed.
 
     Args:
-
-
         vault_path: The absolute path to the Obsidian vault.
-
-
-
-
+        use_cache: If True (default), use caching. If False, always re-parse all files.
 
     Returns:
-
-
         A list of all Task objects found in the vault.
-
-
     """
-
-
     all_tasks = []
-
-
     markdown_files = find_markdown_files(vault_path)
 
-
     for file_path in markdown_files:
-
-
-        all_tasks.extend(parse_tasks_from_file(file_path))
-
+        if use_cache:
+            current_mtime = get_file_mtime(file_path)
+            cached_entry = _task_cache.get(file_path)
+            
+            if cached_entry is not None:
+                cached_mtime, cached_tasks = cached_entry
+                # If file hasn't changed, use cached tasks
+                if current_mtime == cached_mtime:
+                    all_tasks.extend(cached_tasks)
+                    continue
+            
+            # Parse file (either not in cache or file has changed)
+            tasks = parse_tasks_from_file(file_path)
+            # Update cache with new tasks and mtime
+            _task_cache[file_path] = (current_mtime, tasks)
+            all_tasks.extend(tasks)
+        else:
+            # No caching - always parse
+            all_tasks.extend(parse_tasks_from_file(file_path))
 
     return all_tasks
 
@@ -844,6 +930,7 @@ def main():
 
 
 
+        logger.debug(f"Query returned {len(filtered_tasks)} tasks")
         print(f"Found {len(filtered_tasks)} tasks matching your query.")
 
 
