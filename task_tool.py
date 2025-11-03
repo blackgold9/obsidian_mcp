@@ -5,10 +5,11 @@ import argparse
 import logging
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Any
 from pathlib import Path
 
 # Configure logging
@@ -182,10 +183,23 @@ def parse_tasks_from_file(file_path: str) -> List[Task]:
                             tag_indices.add(j)  # Mark for exclusion
                         j += 1
                     tag_indices.add(recurrence_emoji_idx)  # Mark emoji for exclusion
+                    
+                    # Exclude common connecting words immediately before recurrence emoji
+                    # Words like "and", "or", "with" are typically just connectors
+                    if recurrence_emoji_idx > 0:
+                        prev_token = tokens[recurrence_emoji_idx - 1].lower().rstrip(',.')
+                        common_connectors = {'and', 'or', 'with', 'plus'}
+                        if prev_token in common_connectors and (recurrence_emoji_idx - 1) not in tag_indices:
+                            tag_indices.add(recurrence_emoji_idx - 1)  # Mark connector for exclusion
+                            unparsed_token_index = recurrence_emoji_idx - 1
+                        else:
+                            unparsed_token_index = recurrence_emoji_idx
+                    else:
+                        unparsed_token_index = recurrence_emoji_idx
+                    
                     if recurrence_tokens:
                         task.recurrence = " ".join(recurrence_tokens)
-                    # Update unparsed_token_index to exclude recurrence
-                    unparsed_token_index = recurrence_emoji_idx
+                    # Note: unparsed_token_index already set above
                 
                 # Process block IDs and dependencies
                 # Block IDs before ⛔ are the task's own block_id
@@ -366,6 +380,112 @@ def get_all_tasks(vault_path: str, use_cache: bool = True) -> List[Task]:
     return all_tasks
 
 
+def get_task_statistics(vault_path: str, use_cache: bool = True) -> Dict[str, Any]:
+    """
+    Generate comprehensive statistics about tasks in the vault.
+    
+    Args:
+        vault_path: The absolute path to the Obsidian vault.
+        use_cache: If True (default), use caching. If False, always re-parse all files.
+    
+    Returns:
+        A dictionary containing various task statistics:
+        - total: Total number of tasks
+        - by_status: Count of tasks by status (open, completed, cancelled)
+        - by_priority: Count of tasks by priority level
+        - by_tag: Count of tasks per tag
+        - overdue: Number of overdue open tasks
+        - due_today: Number of tasks due today
+        - due_this_week: Number of tasks due in the next 7 days
+        - due_this_month: Number of tasks due in the next 30 days
+        - with_dependencies: Number of tasks that have dependencies
+        - with_recurrence: Number of tasks with recurrence rules
+        - files_with_tasks: Number of files containing tasks
+        - top_tags: Top 10 most common tags
+        - date_distribution: Tasks due in date ranges
+    """
+    all_tasks = get_all_tasks(vault_path, use_cache=use_cache)
+    today = date.today()
+    next_week = today + timedelta(days=7)
+    next_month = today + timedelta(days=30)
+    
+    stats: Dict[str, Any] = {
+        "total": len(all_tasks),
+        "by_status": Counter(),
+        "by_priority": Counter(),
+        "by_tag": Counter(),
+        "overdue": 0,
+        "due_today": 0,
+        "due_this_week": 0,
+        "due_this_month": 0,
+        "with_dependencies": 0,
+        "with_recurrence": 0,
+        "files_with_tasks": len(set(t.file_path for t in all_tasks if t.file_path)),
+        "top_tags": [],
+        "date_distribution": {
+            "past": 0,
+            "today": 0,
+            "this_week": 0,
+            "this_month": 0,
+            "future": 0,
+            "no_due_date": 0
+        }
+    }
+    
+    for task in all_tasks:
+        # Status counts
+        stats["by_status"][task.status.value] += 1
+        
+        # Priority counts
+        stats["by_priority"][task.priority.value] += 1
+        
+        # Tag counts
+        for tag in task.tags:
+            stats["by_tag"][tag] += 1
+        
+        # Overdue tasks (open tasks with due date in past)
+        if task.due_date:
+            if task.status == TaskStatus.OPEN and task.due_date < today:
+                stats["overdue"] += 1
+            if task.due_date == today:
+                stats["due_today"] += 1
+            if task.due_date <= next_week:
+                stats["due_this_week"] += 1
+            if task.due_date <= next_month:
+                stats["due_this_month"] += 1
+            
+            # Date distribution
+            if task.due_date < today:
+                stats["date_distribution"]["past"] += 1
+            elif task.due_date == today:
+                stats["date_distribution"]["today"] += 1
+            elif task.due_date <= next_week:
+                stats["date_distribution"]["this_week"] += 1
+            elif task.due_date <= next_month:
+                stats["date_distribution"]["this_month"] += 1
+            else:
+                stats["date_distribution"]["future"] += 1
+        else:
+            stats["date_distribution"]["no_due_date"] += 1
+        
+        # Dependencies
+        if task.dependencies:
+            stats["with_dependencies"] += 1
+        
+        # Recurrence
+        if task.recurrence:
+            stats["with_recurrence"] += 1
+    
+    # Convert Counter objects to dictionaries
+    stats["by_status"] = dict(stats["by_status"])
+    stats["by_priority"] = dict(stats["by_priority"])
+    stats["by_tag"] = dict(stats["by_tag"])
+    
+    # Get top 10 tags
+    top_tags = Counter(stats["by_tag"]).most_common(10)
+    stats["top_tags"] = [{"tag": tag, "count": count} for tag, count in top_tags]
+    
+    return stats
 
 
 

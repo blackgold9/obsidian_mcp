@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from task_tool import find_markdown_files, parse_tasks_from_file, TaskStatus, TaskPriority, get_all_tasks, clear_task_cache
-from datetime import date
+from task_tool import find_markdown_files, parse_tasks_from_file, TaskStatus, TaskPriority, get_all_tasks, clear_task_cache, get_task_statistics
+from datetime import date, timedelta
 
 
 class TestGetAllTasks(unittest.TestCase):
@@ -521,6 +521,224 @@ class TestDependenciesParsing(unittest.TestCase):
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0].block_id, "simple-id")
         self.assertEqual(tasks[0].dependencies, [])
+
+
+class TestTaskStatistics(unittest.TestCase):
+
+    def setUp(self):
+        """Clear cache before each test to ensure isolation."""
+        clear_task_cache()
+
+    def test_basic_statistics(self):
+        """Test basic statistics counts."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test files with various tasks
+            content1 = """
+- [ ] Open task 1
+- [x] Completed task 1
+- [-] Cancelled task 1
+"""
+            Path(os.path.join(tmpdir, "file1.md")).write_text(content1)
+
+            content2 = """
+- [ ] Open task 2
+- [x] Completed task 2
+"""
+            Path(os.path.join(tmpdir, "file2.md")).write_text(content2)
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(stats["total"], 5)
+            self.assertEqual(stats["by_status"][" "], 2)  # OPEN
+            self.assertEqual(stats["by_status"]["x"], 2)  # COMPLETED
+            self.assertEqual(stats["by_status"]["-"], 1)  # CANCELLED
+            self.assertEqual(stats["files_with_tasks"], 2)
+
+    def test_priority_statistics(self):
+        """Test priority-based statistics."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            content = """
+- [ ] High priority task ⏫
+- [ ] Medium priority task 🔼
+- [ ] Low priority task 🔽
+- [ ] Highest priority task 🔺
+- [ ] Lowest priority task ⏬
+"""
+            Path(os.path.join(tmpdir, "tasks.md")).write_text(content)
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(stats["total"], 5)
+            self.assertEqual(stats["by_priority"]["⏫"], 1)  # HIGH
+            self.assertEqual(stats["by_priority"]["🔼"], 1)  # MEDIUM
+            self.assertEqual(stats["by_priority"]["🔽"], 1)  # LOW
+            self.assertEqual(stats["by_priority"]["🔺"], 1)  # HIGHEST
+            self.assertEqual(stats["by_priority"]["⏬"], 1)  # LOWEST
+
+    def test_tag_statistics(self):
+        """Test tag-based statistics."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            content = """
+- [ ] Task with tag #work
+- [ ] Task with multiple tags #work #urgent
+- [ ] Task with different tag #personal
+- [ ] Task with nested tag #work/projects
+"""
+            Path(os.path.join(tmpdir, "tasks.md")).write_text(content)
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(stats["total"], 4)
+            self.assertEqual(stats["by_tag"]["work"], 2)
+            self.assertEqual(stats["by_tag"]["urgent"], 1)
+            self.assertEqual(stats["by_tag"]["personal"], 1)
+            self.assertEqual(stats["by_tag"]["work/projects"], 1)
+            
+            # Check top_tags includes work with count 2
+            work_tags = [t for t in stats["top_tags"] if t["tag"] == "work"]
+            self.assertEqual(len(work_tags), 1)
+            self.assertEqual(work_tags[0]["count"], 2)
+
+    def test_overdue_statistics(self):
+        """Test overdue task statistics."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            today = date.today()
+            yesterday = today - timedelta(days=1)
+            tomorrow = today + timedelta(days=1)
+            
+            content = f"""
+- [ ] Overdue open task 📅 {yesterday.isoformat()}
+- [x] Overdue completed task 📅 {yesterday.isoformat()}
+- [ ] Future task 📅 {tomorrow.isoformat()}
+- [ ] Task due today 📅 {today.isoformat()}
+"""
+            Path(os.path.join(tmpdir, "tasks.md")).write_text(content)
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(stats["overdue"], 1)  # Only open overdue tasks
+            self.assertEqual(stats["due_today"], 1)
+            self.assertGreaterEqual(stats["due_this_week"], 2)  # Today + tomorrow
+
+    def test_due_date_statistics(self):
+        """Test due date range statistics."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            today = date.today()
+            yesterday = today - timedelta(days=1)
+            next_week = today + timedelta(days=7)
+            next_month = today + timedelta(days=30)
+            future = today + timedelta(days=60)
+            
+            content = f"""
+- [ ] Past due task 📅 {yesterday.isoformat()}
+- [ ] Task due today 📅 {today.isoformat()}
+- [ ] Task due this week 📅 {next_week.isoformat()}
+- [ ] Task due this month 📅 {next_month.isoformat()}
+- [ ] Future task 📅 {future.isoformat()}
+- [ ] Task with no due date
+"""
+            Path(os.path.join(tmpdir, "tasks.md")).write_text(content)
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(stats["total"], 6)
+            self.assertEqual(stats["date_distribution"]["past"], 1)
+            self.assertEqual(stats["date_distribution"]["today"], 1)
+            self.assertEqual(stats["date_distribution"]["this_week"], 1)
+            self.assertEqual(stats["date_distribution"]["this_month"], 1)
+            self.assertEqual(stats["date_distribution"]["future"], 1)
+            self.assertEqual(stats["date_distribution"]["no_due_date"], 1)
+
+    def test_dependencies_statistics(self):
+        """Test dependency statistics."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            content = """
+- [ ] Task with dependencies ⛔ ^dep1 ^dep2
+- [ ] Task without dependencies
+- [ ] Another task with dependency ⛔ ^dep3
+"""
+            Path(os.path.join(tmpdir, "tasks.md")).write_text(content)
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(stats["total"], 3)
+            self.assertEqual(stats["with_dependencies"], 2)
+
+    def test_recurrence_statistics(self):
+        """Test recurrence statistics."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            content = """
+- [ ] Recurring task 🔁 every day
+- [ ] Non-recurring task
+- [ ] Another recurring task 🔁 every week
+"""
+            Path(os.path.join(tmpdir, "tasks.md")).write_text(content)
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(stats["total"], 3)
+            self.assertEqual(stats["with_recurrence"], 2)
+
+    def test_comprehensive_statistics(self):
+        """Test statistics with all features combined."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            today = date.today()
+            yesterday = today - timedelta(days=1)
+            
+            content = f"""
+- [ ] High priority overdue task ⏫ 📅 {yesterday.isoformat()} #work #urgent ⛔ ^dep1
+- [x] Completed task ✅ {today.isoformat()} #work
+- [ ] Recurring task 🔁 every day #personal
+- [ ] Simple task
+"""
+            Path(os.path.join(tmpdir, "tasks.md")).write_text(content)
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(stats["total"], 4)
+            self.assertEqual(stats["by_status"][" "], 3)  # OPEN
+            self.assertEqual(stats["by_status"]["x"], 1)  # COMPLETED
+            self.assertEqual(stats["overdue"], 1)
+            self.assertEqual(stats["with_dependencies"], 1)
+            self.assertEqual(stats["with_recurrence"], 1)
+            self.assertEqual(stats["by_tag"]["work"], 2)
+            self.assertEqual(stats["by_tag"]["urgent"], 1)
+            self.assertEqual(stats["by_tag"]["personal"], 1)
+            self.assertEqual(stats["files_with_tasks"], 1)
+
+    def test_empty_vault_statistics(self):
+        """Test statistics with an empty vault."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create an empty file
+            Path(os.path.join(tmpdir, "empty.md")).write_text("# No tasks here")
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(stats["total"], 0)
+            self.assertEqual(stats["by_status"], {})
+            self.assertEqual(stats["by_priority"], {})
+            self.assertEqual(stats["by_tag"], {})
+            self.assertEqual(stats["overdue"], 0)
+            self.assertEqual(stats["files_with_tasks"], 0)
+            self.assertEqual(stats["top_tags"], [])
+
+    def test_top_tags_limit(self):
+        """Test that top_tags is limited to 10."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create tasks with 15 different tags
+            content_lines = []
+            for i in range(15):
+                content_lines.append(f"- [ ] Task {i} #tag{i}")
+            content = "\n".join(content_lines)
+            
+            Path(os.path.join(tmpdir, "tasks.md")).write_text(content)
+
+            stats = get_task_statistics(tmpdir)
+
+            self.assertEqual(len(stats["top_tags"]), 10)
+            # All should have count 1
+            for tag_entry in stats["top_tags"]:
+                self.assertEqual(tag_entry["count"], 1)
 
 
 if __name__ == "__main__":

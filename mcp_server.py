@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 from fastmcp import FastMCP
 from fastmcp.tools import FunctionTool
 
-from task_tool import get_all_tasks, Task, TaskStatus, TaskPriority
+from task_tool import get_all_tasks, Task, TaskStatus, TaskPriority, get_task_statistics
 
 # Create the MCP server instance
 app = FastMCP(name="obsidian-tasks", version="0.1.0")
@@ -219,9 +219,50 @@ def task_to_dict(task: Task) -> Dict[str, Any]:
     }
 
 
-# Register the tool with the MCP server
-tool = FunctionTool.from_function(query_tasks)
-app.add_tool(tool)
+def get_statistics(vault_path: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get comprehensive statistics about tasks in the Obsidian vault.
+    
+    Args:
+        vault_path: The absolute path to the Obsidian vault directory. If not provided,
+                   will use the OBSIDIAN_VAULT_PATH environment variable.
+    
+    Returns:
+        A dictionary containing task statistics including:
+        - total: Total number of tasks
+        - by_status: Count of tasks by status (open, completed, cancelled)
+        - by_priority: Count of tasks by priority level
+        - by_tag: Count of tasks per tag
+        - overdue: Number of overdue open tasks
+        - due_today: Number of tasks due today
+        - due_this_week: Number of tasks due in the next 7 days
+        - due_this_month: Number of tasks due in the next 30 days
+        - with_dependencies: Number of tasks that have dependencies
+        - with_recurrence: Number of tasks with recurrence rules
+        - files_with_tasks: Number of files containing tasks
+        - top_tags: Top 10 most common tags with counts
+        - date_distribution: Tasks due in date ranges (past, today, this_week, this_month, future, no_due_date)
+    
+    Raises:
+        ValueError: If vault_path is not provided and OBSIDIAN_VAULT_PATH is not set.
+    """
+    # Get vault path from parameter or environment variable
+    if vault_path is None:
+        vault_path = os.getenv("OBSIDIAN_VAULT_PATH")
+        if vault_path is None:
+            raise ValueError(
+                "vault_path must be provided as a parameter or set via OBSIDIAN_VAULT_PATH environment variable"
+            )
+    
+    return get_task_statistics(vault_path)
+
+
+# Register the tools with the MCP server
+query_tool = FunctionTool.from_function(query_tasks)
+app.add_tool(query_tool)
+
+statistics_tool = FunctionTool.from_function(get_statistics)
+app.add_tool(statistics_tool)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import date, timedelta
 
 # This import will fail until we create mcp_server.py
-from mcp_server import query_tasks, parse_date
+from mcp_server import query_tasks, parse_date, get_statistics
 from task_tool import TaskStatus, TaskPriority, clear_task_cache
 
 class TestMCPServer(unittest.TestCase):
@@ -176,6 +176,44 @@ class TestMCPServer(unittest.TestCase):
             if due_date_str:
                 due_date = date.fromisoformat(due_date_str) if isinstance(due_date_str, str) else due_date_str
                 self.assertLessEqual(due_date, tomorrow)
+
+    def test_get_statistics(self):
+        """Test the get_statistics MCP tool."""
+        stats = get_statistics(vault_path=self.vault_path)
+        
+        # Verify structure
+        self.assertIn("total", stats)
+        self.assertIn("by_status", stats)
+        self.assertIn("by_priority", stats)
+        self.assertIn("by_tag", stats)
+        self.assertIn("overdue", stats)
+        self.assertIn("due_today", stats)
+        self.assertIn("due_this_week", stats)
+        self.assertIn("due_this_month", stats)
+        self.assertIn("with_dependencies", stats)
+        self.assertIn("with_recurrence", stats)
+        self.assertIn("files_with_tasks", stats)
+        self.assertIn("top_tags", stats)
+        self.assertIn("date_distribution", stats)
+        
+        # Verify basic counts
+        self.assertIsInstance(stats["total"], int)
+        self.assertGreaterEqual(stats["total"], 0)
+        self.assertIsInstance(stats["by_status"], dict)
+        self.assertIsInstance(stats["by_priority"], dict)
+        self.assertIsInstance(stats["by_tag"], dict)
+        self.assertIsInstance(stats["overdue"], int)
+        self.assertIsInstance(stats["files_with_tasks"], int)
+        self.assertIsInstance(stats["top_tags"], list)
+        
+        # Verify date_distribution structure
+        date_dist = stats["date_distribution"]
+        self.assertIn("past", date_dist)
+        self.assertIn("today", date_dist)
+        self.assertIn("this_week", date_dist)
+        self.assertIn("this_month", date_dist)
+        self.assertIn("future", date_dist)
+        self.assertIn("no_due_date", date_dist)
 
 
 if __name__ == "__main__":
