@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any
 
@@ -11,7 +12,7 @@ app = FastMCP(name="obsidian-tasks", version="0.1.0")
 
 
 def query_tasks(
-    vault_path: str,
+    vault_path: Optional[str] = None,
     status: Optional[str] = None,
     priority: Optional[str] = None,
     due: Optional[str] = None,
@@ -22,7 +23,8 @@ def query_tasks(
     Queries tasks from an Obsidian vault with optional filters.
     
     Args:
-        vault_path: The absolute path to the Obsidian vault directory.
+        vault_path: The absolute path to the Obsidian vault directory. If not provided, 
+                   will use the OBSIDIAN_VAULT_PATH environment variable.
         status: Filter by status: 'open', 'completed', or 'cancelled'.
         priority: Filter by priority: 'highest', 'high', 'medium', 'low', or 'lowest'.
         due: Filter by due date in YYYY-MM-DD format.
@@ -31,7 +33,18 @@ def query_tasks(
     
     Returns:
         A list of task dictionaries with all task properties.
+    
+    Raises:
+        ValueError: If vault_path is not provided and OBSIDIAN_VAULT_PATH is not set.
     """
+    # Get vault path from parameter or environment variable
+    if vault_path is None:
+        vault_path = os.getenv("OBSIDIAN_VAULT_PATH")
+        if vault_path is None:
+            raise ValueError(
+                "vault_path must be provided as a parameter or set via OBSIDIAN_VAULT_PATH environment variable"
+            )
+    
     all_tasks = get_all_tasks(vault_path)
     filtered_tasks = all_tasks
 
