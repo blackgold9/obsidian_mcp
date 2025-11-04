@@ -78,7 +78,17 @@ python3 task_tool.py <vault_path> query [OPTIONS]
 
 The `mcp_server.py` script runs a FastMCP server, exposing task-querying functionality as a tool.
 
-#### Start the Server
+#### Starting the Server
+
+You can specify the path to your Obsidian vault using either a command-line argument or an environment variable.
+
+**1. Using the `--vault-path` argument (Recommended):**
+
+```bash
+python3 mcp_server.py --vault-path ~/Documents/MyVault
+```
+
+**2. Using an Environment Variable:**
 
 ```bash
 # Set your vault path as an environment variable
@@ -88,10 +98,9 @@ export OBSIDIAN_VAULT_PATH=~/Documents/MyVault
 python3 mcp_server.py
 ```
 
-Or, using `uv`:
-
+You can also use `uv` to run the server with the argument:
 ```bash
-uv run fastmcp run mcp_server.py
+uv run python3 mcp_server.py --vault-path ~/Documents/MyVault
 ```
 
 ## 👨‍💻 For Developers

@@ -276,4 +276,17 @@ app.add_tool(statistics_tool)
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Obsidian Tasks MCP Server")
+    parser.add_argument(
+        "--vault-path",
+        help="The absolute path to your Obsidian vault. If not provided, the "
+        "OBSIDIAN_VAULT_PATH environment variable will be used.",
+    )
+    args = parser.parse_args()
+
+    if args.vault_path:
+        os.environ["OBSIDIAN_VAULT_PATH"] = args.vault_path
+
     app.run()
