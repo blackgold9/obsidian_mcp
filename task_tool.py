@@ -1,5 +1,7 @@
-"""
-A command-line tool for querying and managing tasks in an Obsidian vault.
+"""A command-line tool for querying and managing tasks in an Obsidian vault.
+
+This module provides a command-line interface (CLI) for querying tasks from an
+Obsidian vault. It can be run as a standalone script or imported as a module.
 """
 import argparse
 import logging
@@ -22,14 +24,28 @@ logger = logging.getLogger(__name__)
 
 
 class TaskStatus(Enum):
-    """Represents the status of a task."""
+    """Represents the status of a task.
+
+    Attributes:
+        OPEN: The task is open.
+        COMPLETED: The task is completed.
+        CANCELLED: The task is cancelled.
+    """
     OPEN = " "
     COMPLETED = "x"
     CANCELLED = "-"
 
 
 class TaskPriority(Enum):
-    """Represents the priority of a task, mapping emoji to a value."""
+    """Represents the priority of a task, mapping emoji to a value.
+
+    Attributes:
+        HIGHEST: The highest priority.
+        HIGH: A high priority.
+        MEDIUM: A medium priority.
+        LOW: A low priority.
+        LOWEST: The lowest priority.
+    """
     HIGHEST = "🔺"
     HIGH = "⏫"
     MEDIUM = "🔼"
@@ -39,7 +55,26 @@ class TaskPriority(Enum):
 
 @dataclass
 class Task:
-    """Represents a single task parsed from a Markdown file."""
+    """Represents a single task parsed from a Markdown file.
+
+    Attributes:
+        description: The description of the task.
+        status: The status of the task.
+        priority: The priority of the task.
+        created_date: The date the task was created.
+        start_date: The date the task is scheduled to start.
+        scheduled_date: The date the task is scheduled to be worked on.
+        due_date: The date the task is due.
+        done_date: The date the task was completed.
+        cancelled_date: The date the task was cancelled.
+        recurrence: The recurrence rule for the task.
+        block_id: The block ID of the task.
+        dependencies: A list of block IDs of tasks that this task depends on.
+        tags: A list of tags associated with the task.
+        file_path: The path to the file containing the task.
+        line_number: The line number of the task in the file.
+        raw_text: The raw text of the task line.
+    """
     description: str
     status: TaskStatus
     priority: TaskPriority = TaskPriority.MEDIUM
@@ -59,8 +94,7 @@ class Task:
 
 
 def find_markdown_files(vault_path: str) -> List[str]:
-    """
-    Recursively finds all Markdown files in a directory.
+    """Recursively finds all Markdown files in a directory.
 
     Args:
         vault_path: The absolute path to the Obsidian vault.
@@ -77,17 +111,18 @@ def find_markdown_files(vault_path: str) -> List[str]:
 
 
 def parse_tasks_from_file(file_path: str) -> List[Task]:
-    """
-    Parses tasks from a single Markdown file, including metadata,
+    """Parses tasks from a single Markdown file.
+
+    This function parses tasks from a single Markdown file, including metadata,
     following the Obsidian Tasks plugin's reverse-parsing rules.
 
-    According to the Obsidian Tasks plugin documentation:
-    https://publish.obsidian.md/tasks/Support+and+Help/Known+Limitations
-    Tasks reads task lines backwards for dates, priorities, and recurrence rules.
+    According to the Obsidian Tasks plugin documentation, Tasks reads task lines
+    backwards for dates, priorities, and recurrence rules.
+    See: https://publish.obsidian.md/tasks/Support+and+Help/Known+Limitations
 
     Current implementation:
-    - Tags and block IDs: Forward pass (can appear anywhere in description)
-    - Dates, priorities, recurrence: Reverse pass (appear at end of task line)
+        - Tags and block IDs: Forward pass (can appear anywhere in description)
+        - Dates, priorities, recurrence: Reverse pass (at end of task line)
 
     Args:
         file_path: The absolute path to the Markdown file.
@@ -326,13 +361,23 @@ _task_cache: Dict[str, Tuple[float, List[Task]]] = {}
 
 
 def clear_task_cache() -> None:
-    """Clear the task cache. Useful for testing or forcing a full re-parse."""
+    """Clears the task cache.
+
+    This is useful for testing or forcing a full re-parse of all files.
+    """
     global _task_cache
     _task_cache.clear()
 
 
 def get_file_mtime(file_path: str) -> float:
-    """Get the modification time of a file."""
+    """Gets the modification time of a file.
+
+    Args:
+        file_path: The path to the file.
+
+    Returns:
+        The modification time of the file, or 0.0 if the file does not exist.
+    """
     try:
         return os.path.getmtime(file_path)
     except OSError:
@@ -340,15 +385,15 @@ def get_file_mtime(file_path: str) -> float:
 
 
 def get_all_tasks(vault_path: str, use_cache: bool = True) -> List[Task]:
-    """
-    Finds and parses all tasks from all Markdown files in a vault.
-    
-    Uses caching to avoid re-parsing unchanged files. The cache tracks
-    file modification times and only re-parses files that have changed.
+    """Finds and parses all tasks from all Markdown files in a vault.
+
+    Uses caching to avoid re-parsing unchanged files. The cache tracks file
+    modification times and only re-parses files that have changed.
 
     Args:
         vault_path: The absolute path to the Obsidian vault.
-        use_cache: If True (default), use caching. If False, always re-parse all files.
+        use_cache: If True (default), use caching. If False, re-parse all
+            files.
 
     Returns:
         A list of all Task objects found in the vault.
@@ -381,28 +426,28 @@ def get_all_tasks(vault_path: str, use_cache: bool = True) -> List[Task]:
 
 
 def get_task_statistics(vault_path: str, use_cache: bool = True) -> Dict[str, Any]:
-    """
-    Generate comprehensive statistics about tasks in the vault.
-    
+    """Generates comprehensive statistics about tasks in the vault.
+
     Args:
         vault_path: The absolute path to the Obsidian vault.
-        use_cache: If True (default), use caching. If False, always re-parse all files.
-    
+        use_cache: If True (default), use caching. If False, re-parse all
+            files.
+
     Returns:
-        A dictionary containing various task statistics:
-        - total: Total number of tasks
-        - by_status: Count of tasks by status (open, completed, cancelled)
-        - by_priority: Count of tasks by priority level
-        - by_tag: Count of tasks per tag
-        - overdue: Number of overdue open tasks
-        - due_today: Number of tasks due today
-        - due_this_week: Number of tasks due in the next 7 days
-        - due_this_month: Number of tasks due in the next 30 days
-        - with_dependencies: Number of tasks that have dependencies
-        - with_recurrence: Number of tasks with recurrence rules
-        - files_with_tasks: Number of files containing tasks
-        - top_tags: Top 10 most common tags
-        - date_distribution: Tasks due in date ranges
+        A dictionary containing various task statistics, including:
+            - total: Total number of tasks.
+            - by_status: Count of tasks by status.
+            - by_priority: Count of tasks by priority level.
+            - by_tag: Count of tasks per tag.
+            - overdue: Number of overdue open tasks.
+            - due_today: Number of tasks due today.
+            - due_this_week: Number of tasks due in the next 7 days.
+            - due_this_month: Number of tasks due in the next 30 days.
+            - with_dependencies: Number of tasks with dependencies.
+            - with_recurrence: Number of tasks with recurrence rules.
+            - files_with_tasks: Number of files containing tasks.
+            - top_tags: Top 10 most common tags.
+            - date_distribution: Tasks due in various date ranges.
     """
     all_tasks = get_all_tasks(vault_path, use_cache=use_cache)
     today = date.today()
@@ -493,33 +538,7 @@ def get_task_statistics(vault_path: str, use_cache: bool = True) -> Dict[str, An
 
 
 def main():
-
-
-
-
-
-
-
-
-    """
-
-
-
-
-
-
-
-
-    Command-line interface for querying tasks in an Obsidian vault.
-
-
-
-
-
-
-
-
-    """
+    """Command-line interface for querying tasks in an Obsidian vault."""
 
 
 

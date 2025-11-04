@@ -1,3 +1,8 @@
+"""A server for querying tasks from an Obsidian vault.
+
+This module provides a server that exposes the task-querying functionality of
+the `task_tool` module as a set of tools that can be called remotely.
+"""
 import os
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
@@ -12,24 +17,26 @@ app = FastMCP(name="obsidian-tasks", version="0.1.0")
 
 
 def parse_date(date_str: str) -> date:
-    """
-    Parse a date string, supporting both absolute dates (YYYY-MM-DD) and relative dates.
-    
+    """Parses a date string into a date object.
+
+    This function supports both absolute dates (YYYY-MM-DD) and relative dates.
+
     Supported relative dates:
-    - 'today', 'tomorrow', 'yesterday'
-    - 'next week', 'last week'
-    - 'next month', 'last month'
-    - 'next year', 'last year'
-    - '+N days', '-N days', '+N weeks', '-N weeks' (e.g., '+7 days', '-2 weeks')
-    
+        - 'today', 'tomorrow', 'yesterday'
+        - 'next week', 'last week'
+        - 'next month', 'last month'
+        - 'next year', 'last year'
+        - '+N days', '-N days', '+N weeks', '-N weeks' (e.g., '+7 days',
+          '-2 weeks')
+
     Args:
-        date_str: Date string to parse
-        
+        date_str: The date string to parse.
+
     Returns:
-        A date object
-        
+        A date object.
+
     Raises:
-        ValueError: If date string cannot be parsed
+        ValueError: If the date string cannot be parsed.
     """
     today = date.today()
     date_str_lower = date_str.lower().strip()
@@ -91,28 +98,31 @@ def query_tasks(
     scheduled_after: Optional[str] = None,
     scheduled_before: Optional[str] = None
 ) -> List[Dict[str, Any]]:
-    """
-    Queries tasks from an Obsidian vault with optional filters.
-    
+    """Queries tasks from an Obsidian vault with optional filters.
+
     Args:
-        vault_path: The absolute path to the Obsidian vault directory. If not provided, 
-                   will use the OBSIDIAN_VAULT_PATH environment variable.
-        status: Filter by status: 'open', 'completed', or 'cancelled'.
-        priority: Filter by priority: 'highest', 'high', 'medium', 'low', or 'lowest'.
-        due: Filter by exact due date. Supports YYYY-MM-DD format or relative dates.
-        overdue: If True, filter for overdue tasks (open tasks with due date in past).
-        tag: Filter by tag (without the # prefix).
-        due_after: Filter tasks with due date on or after this date. Supports relative dates.
-        due_before: Filter tasks with due date on or before this date. Supports relative dates.
-        scheduled_after: Filter tasks with scheduled date on or after this date. Supports relative dates.
-        scheduled_before: Filter tasks with scheduled date on or before this date. Supports relative dates.
-    
+        vault_path: The absolute path to the Obsidian vault directory. If not
+            provided, the `OBSIDIAN_VAULT_PATH` environment variable will be
+            used.
+        status: A status to filter by. Can be 'open', 'completed', or
+            'cancelled'.
+        priority: A priority to filter by. Can be 'highest', 'high', 'medium',
+            'low', or 'lowest'.
+        due: A due date to filter by. Can be in YYYY-MM-DD format or a
+            relative date string.
+        overdue: If True, only return overdue tasks.
+        tag: A tag to filter by.
+        due_after: A date to filter tasks due on or after.
+        due_before: A date to filter tasks due on or before.
+        scheduled_after: A date to filter tasks scheduled on or after.
+        scheduled_before: A date to filter tasks scheduled on or before.
+
     Returns:
-        A list of task dictionaries with all task properties.
-    
+        A list of task dictionaries, with each dictionary representing a task.
+
     Raises:
-        ValueError: If vault_path is not provided and OBSIDIAN_VAULT_PATH is not set, 
-                   or if date strings cannot be parsed.
+        ValueError: If `vault_path` is not provided and the
+            `OBSIDIAN_VAULT_PATH` environment variable is not set.
     """
     # Get vault path from parameter or environment variable
     if vault_path is None:
@@ -190,12 +200,11 @@ def query_tasks(
 
 
 def task_to_dict(task: Task) -> Dict[str, Any]:
-    """
-    Convert a Task object to a dictionary for JSON serialization.
-    
+    """Converts a Task object to a dictionary for JSON serialization.
+
     Args:
         task: The Task object to convert.
-    
+
     Returns:
         A dictionary representation of the task.
     """
@@ -220,13 +229,13 @@ def task_to_dict(task: Task) -> Dict[str, Any]:
 
 
 def get_statistics(vault_path: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Get comprehensive statistics about tasks in the Obsidian vault.
-    
+    """Gets comprehensive statistics about tasks in the Obsidian vault.
+
     Args:
-        vault_path: The absolute path to the Obsidian vault directory. If not provided,
-                   will use the OBSIDIAN_VAULT_PATH environment variable.
-    
+        vault_path: The absolute path to the Obsidian vault directory. If not
+            provided, the `OBSIDIAN_VAULT_PATH` environment variable will be
+            used.
+
     Returns:
         A dictionary containing task statistics including:
         - total: Total number of tasks
@@ -242,9 +251,10 @@ def get_statistics(vault_path: Optional[str] = None) -> Dict[str, Any]:
         - files_with_tasks: Number of files containing tasks
         - top_tags: Top 10 most common tags with counts
         - date_distribution: Tasks due in date ranges (past, today, this_week, this_month, future, no_due_date)
-    
+
     Raises:
-        ValueError: If vault_path is not provided and OBSIDIAN_VAULT_PATH is not set.
+        ValueError: If `vault_path` is not provided and the
+            `OBSIDIAN_VAULT_PATH` environment variable is not set.
     """
     # Get vault path from parameter or environment variable
     if vault_path is None:
